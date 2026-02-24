@@ -1,92 +1,65 @@
 import telebot
 import requests
-import re
-import random
 
-TOKEN = "8700268110:AAGtHJ2_Kkyv-b9ZKUVmv8d-L4VLieMV90E"
-bot = telebot.TeleBot(TOKEN, parse_mode="Markdown")
+TOKEN = "BOT_TOKEN"
+bot = telebot.TeleBot(TOKEN)
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
+GITHUB_API = "https://api.github.com/search/repositories"
 
-# ---------- ПРОВЕРКА KEY ----------
-def check_key(lua_code: str) -> str:
-    keywords = [
-        "key system", "getkey", "get_key", "enter key",
-        "verify key", "checkkey", "linkvertise",
-        "lootlinks", "work.ink", "key ="
-    ]
-    code = lua_code.lower()
-    for k in keywords:
-        if k in code:
-            return "KEY: ❌"
-    return "KEY: ✅"
+@bot.message_handler(commands=["start"])
+def start(message):
+    bot.send_message(
+        message.chat.id,
+        "🤖 Бот запущен и работает 24/7 ✅\n\n"
+        "Команда поиска:\n"
+        "/s <запрос> <кол-во>\n\n"
+        "Пример:\n"
+        "/s evade 2"
+    )
 
-# ---------- ПОИСК RAW СКРИПТОВ ----------
-def search_scripts(game: str, limit: int):
-    query = f"{game} roblox lua loadstring"
-    url = f"https://api.github.com/search/code?q={query}&per_page=20"
-
-    r = requests.get(url, headers=HEADERS)
-    if r.status_code != 200:
-        return []
-
-    items = r.json().get("items", [])
-    random.shuffle(items)
-
-    raw_links = []
-    for item in items:
-        if len(raw_links) >= limit:
-            break
-
-        html_url = item["html_url"]
-        raw_url = html_url.replace(
-            "https://github.com/",
-            "https://raw.githubusercontent.com/"
-        ).replace("/blob/", "/")
-
-        raw_links.append(raw_url)
-
-    return raw_links
-
-# ---------- КОМАНДА /s ----------
 @bot.message_handler(commands=["s"])
-def search_handler(message):
+def search_scripts(message):
+    args = message.text.split(maxsplit=2)
+
+    if len(args) < 3:
+        bot.reply_to(message, "❌ Используй:\n/s <запрос> <кол-во>")
+        return
+
+    query = args[1]
     try:
-        args = message.text.split()
-        game = args[1]
-        count = int(args[2])
-    except:
-        bot.reply_to(message, "Используй: `/s игра количество`")
+        limit = int(args[2])
+    except ValueError:
+        bot.reply_to(message, "❌ Кол-во должно быть числом")
         return
 
-    bot.send_message(message.chat.id, "🔎 Ищу скрипты...")
+    params = {
+        "q": query + " roblox script",
+        "sort": "stars",
+        "order": "desc",
+        "per_page": limit
+    }
 
-    links = search_scripts(game, count)
+    r = requests.get(GITHUB_API, params=params)
 
-    if not links:
-        bot.send_message(message.chat.id, "❌ Скрипты не найдены")
+    if r.status_code != 200:
+        bot.reply_to(message, "❌ Ошибка GitHub API")
         return
 
-    for link in links:
-        try:
-            r = requests.get(link, timeout=10)
-            lua_code = r.text
+    data = r.json().get("items", [])
 
-            key_status = check_key(lua_code)
+    if not data:
+        bot.reply_to(message, "❌ Ничего не найдено")
+        return
 
-            msg = (
-                f"{key_status}\n\n"
-                "```lua\n"
-                f'loadstring(game:HttpGet("{link}"))()\n'
-                "```"
-            )
+    bot.send_message(message.chat.id, f"🔍 Поиск по запросу: {query}\n")
 
-            bot.send_message(message.chat.id, msg)
+    for repo in data:
+        text = (
+            f"📦 {repo['full_name']}\n"
+            f"⭐ Stars: {repo['stargazers_count']}\n"
+            f"🔗 {repo['html_url']}\n"
+        )
+        bot.send_message(message.chat.id, text)
 
-        except:
-            continue
-
-# ---------- СТАРТ ----------
+print("Bot started")
 bot.infinity_polling()
