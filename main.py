@@ -1,6 +1,7 @@
 import telebot
 import requests
 import os
+import re
 
 TOKEN = os.getenv("BOT_TOKEN")
 bot = telebot.TeleBot(TOKEN)
@@ -10,47 +11,22 @@ HEADERS = {
     "User-Agent": "findscripts-bot"
 }
 
-def find_lua_files(contents_url):
-    r = requests.get(contents_url, headers=HEADERS)
-    if r.status_code != 200:
-        return []
-
-    results = []
-    items = r.json()
-
-    if not isinstance(items, list):
-        return []
-
-    for item in items:
-        if item["type"] == "file" and item["name"].endswith(".lua"):
-            results.append(item["download_url"])
-
-        if item["type"] == "dir":
-            sub = requests.get(item["url"], headers=HEADERS)
-            if sub.status_code != 200:
-                continue
-            for f in sub.json():
-                if f["type"] == "file" and f["name"].endswith(".lua"):
-                    results.append(f["download_url"])
-
-    return results
-
 
 @bot.message_handler(commands=["start"])
 def start(message):
     bot.send_message(
         message.chat.id,
-        "Бот работает\n\n"
+        "🤖 FindScripts бот\n\n"
         "Команда:\n"
         "/s <запрос> <кол-во>\n\n"
         "Пример:\n"
-        "/s evade 2"
+        "/s evade 1"
     )
 
 
 @bot.message_handler(commands=["s"])
 def search(message):
-    args = message.text.split(maxsplit=2)
+    args = message.text.split()
     if len(args) < 3:
         bot.reply_to(message, "❌ /s <запрос> <кол-во>")
         return
@@ -62,35 +38,44 @@ def search(message):
         bot.reply_to(message, "❌ Кол-во должно быть числом")
         return
 
-    search_url = "https://api.github.com/search/repositories"
+    bot.send_message(message.chat.id, f"🔍 Поиск по запросу: {query}")
+
+    search_url = "https://api.github.com/search/code"
     params = {
-        "q": f"{query} roblox script",
-        "sort": "stars",
-        "order": "desc",
-        "per_page": 10
+        "q": f'{query} loadstring(game:HttpGet language:Lua',
+        "per_page": min(limit * 3, 30)
     }
 
-    r = requests.get(search_url, params=params, headers=HEADERS)
+    r = requests.get(search_url, headers=HEADERS, params=params)
     if r.status_code != 200:
         bot.send_message(message.chat.id, "❌ Ошибка GitHub API")
         return
 
-    repos = r.json().get("items", [])
+    results = r.json().get("items", [])
     found = 0
 
-    bot.send_message(message.chat.id, f"🔍 Поиск по запросу: {query}")
-
-    for repo in repos:
+    for item in results:
         if found >= limit:
             break
 
-        contents_url = repo["contents_url"].replace("{+path}", "")
-        lua_files = find_lua_files(contents_url)
+        raw_url = item["html_url"].replace(
+            "https://github.com/",
+            "https://raw.githubusercontent.com/"
+        ).replace("/blob/", "/")
 
-        for raw in lua_files:
+        file = requests.get(raw_url)
+        if file.status_code != 200:
+            continue
+
+        matches = re.findall(
+            r'loadstring\(game:HttpGet\(["\'](.*?)["\']\)\)\(\)',
+            file.text
+        )
+
+        for m in matches:
             bot.send_message(
                 message.chat.id,
-                f"```lua\nloadstring(game:HttpGet(\"{raw}\"))()\n```",
+                f"```lua\nloadstring(game:HttpGet(\"{m}\"))()\n```",
                 parse_mode="Markdown"
             )
             found += 1
