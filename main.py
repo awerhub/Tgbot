@@ -1,54 +1,52 @@
 import telebot
 import requests
 import os
-import re
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+TOKEN = os.getenv("TOKEN") or "PASTE_YOUR_BOT_TOKEN_HERE"
+bot = telebot.TeleBot(TOKEN)
 
-bot = telebot.TeleBot(BOT_TOKEN)
+GITHUB_API = "https://api.github.com/search/code"
 
 HEADERS = {
     "Accept": "application/vnd.github+json",
-    "Authorization": f"Bearer {GITHUB_TOKEN}",
-    "User-Agent": "findscripts-bot"
+    "User-Agent": "tg-bot"
 }
-
 
 @bot.message_handler(commands=["start"])
 def start(message):
     bot.send_message(
         message.chat.id,
-        "🤖 FindScripts бот\n\n"
+        "🤖 Бот запущен\n\n"
+        "Команда:\n"
         "/s <запрос> <кол-во>\n\n"
         "Пример:\n"
         "/s evade 1"
     )
 
-
 @bot.message_handler(commands=["s"])
 def search(message):
     args = message.text.split()
+
     if len(args) < 3:
-        bot.reply_to(message, "❌ /s <запрос> <кол-во>")
+        bot.send_message(message.chat.id, "❌ Используй: /s <запрос> <кол-во>")
         return
 
     query = args[1]
+
     try:
         limit = int(args[2])
-    except:
-        bot.reply_to(message, "❌ Кол-во должно быть числом")
+    except ValueError:
+        bot.send_message(message.chat.id, "❌ Кол-во должно быть числом")
         return
 
     bot.send_message(message.chat.id, f"🔍 Поиск по запросу: {query}")
 
-    url = "https://api.github.com/search/code"
     params = {
-        "q": f'{query} loadstring(game:HttpGet',
-        "per_page": 30
+        "q": query,
+        "per_page": min(limit, 30)
     }
 
-    r = requests.get(url, headers=HEADERS, params=params)
+    r = requests.get(GITHUB_API, headers=HEADERS, params=params)
 
     if r.status_code != 200:
         bot.send_message(
@@ -58,27 +56,19 @@ def search(message):
         return
 
     items = r.json().get("items", [])
-    found = 0
 
+    if not items:
+        bot.send_message(message.chat.id, "❌ Ничего не найдено")
+        return
+
+    sent = 0
     for item in items:
-        if found >= limit:
+        if sent >= limit:
             break
 
-        raw = item["html_url"] \
-            .replace("https://github.com/", "https://raw.githubusercontent.com/") \
-            .replace("/blob/", "/")
+        url = item.get("html_url")
+        if url:
+            bot.send_message(message.chat.id, url)
+            sent += 1
 
-        file = requests.get(raw)
-        if file.status_code != 200:
-            continue
-
-        matches = re.findall(
-            r'loadstringgame:HttpGet\(["\'](.*?)["\']\)',
-            file.text
-        )
-
-        for m in matches:
-            bot.send_message(
-                message.chat.id,
-                m 
-)
+bot.infinity_polling()
