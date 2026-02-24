@@ -2,7 +2,7 @@ import telebot
 import requests
 import os
 
-TOKEN = os.getenv("TOKEN") or "PASTE_YOUR_BOT_TOKEN_HERE"
+TOKEN = os.getenv("BOT_TOKEN") or "7660869244:AAHEbtO0AXrAlJD85smlXGskC203pfuLqec"
 bot = telebot.TeleBot(TOKEN)
 
 GITHUB_API = "https://api.github.com/search/code"
