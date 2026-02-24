@@ -1,38 +1,39 @@
 import telebot
 import requests
+import os
 
-TOKEN = "BOT_TOKEN"
+TOKEN = os.getenv("BOT_TOKEN")  # обязательно через env
 bot = telebot.TeleBot(TOKEN)
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
+GITHUB_SEARCH = "https://api.github.com/search/repositories"
+GITHUB_HEADERS = {
+    "Accept": "application/vnd.github+json",
+    "User-Agent": "findscripts-bot"
 }
-
-SEARCH_API = "https://api.github.com/search/repositories"
 
 @bot.message_handler(commands=["start"])
 def start(message):
     bot.send_message(
         message.chat.id,
-        "🤖 Бот работает ✅\n\n"
-        "Поиск:\n"
+        "🤖 Бот запущен и работает 24/7 ✅\n\n"
+        "Команда поиска:\n"
         "/s <запрос> <кол-во>\n\n"
         "Пример:\n"
         "/s evade 2"
     )
 
 @bot.message_handler(commands=["s"])
-def search(message):
+def search_scripts(message):
     args = message.text.split(maxsplit=2)
 
     if len(args) < 3:
-        bot.reply_to(message, "❌ Используй: /s <запрос> <кол-во>")
+        bot.reply_to(message, "❌ Используй:\n/s <запрос> <кол-во>")
         return
 
     query = args[1]
     try:
         limit = int(args[2])
-    except:
+    except ValueError:
         bot.reply_to(message, "❌ Кол-во должно быть числом")
         return
 
@@ -40,17 +41,21 @@ def search(message):
         "q": f"{query} roblox script",
         "sort": "stars",
         "order": "desc",
-        "per_page": limit
+        "per_page": 10
     }
 
-    r = requests.get(SEARCH_API, params=params, headers=HEADERS)
-
+    r = requests.get(GITHUB_SEARCH, params=params, headers=GITHUB_HEADERS)
     if r.status_code != 200:
-        bot.send_message(message.chat.id, f"❌ GitHub API error {r.status_code}")
+        bot.reply_to(message, "❌ Ошибка GitHub API")
         return
 
     repos = r.json().get("items", [])
+    if not repos:
+        bot.reply_to(message, "❌ Ничего не найдено")
+        return
+
     found = 0
+    bot.send_message(message.chat.id, f"🔍 Поиск по запросу: {query}")
 
     for repo in repos:
         if found >= limit:
@@ -58,29 +63,33 @@ def search(message):
 
         owner = repo["owner"]["login"]
         name = repo["name"]
-
         contents_url = f"https://api.github.com/repos/{owner}/{name}/contents"
-        c = requests.get(contents_url, headers=HEADERS)
 
+        c = requests.get(contents_url, headers=GITHUB_HEADERS)
         if c.status_code != 200:
             continue
 
-        for f in c.json():
+        files = c.json()
+        if not isinstance(files, list):
+            continue
+
+        for f in files:
             if f["type"] == "file" and f["name"].endswith(".lua"):
+                raw_url = f["download_url"]
+
                 bot.send_message(
                     message.chat.id,
-                    f"📦 {repo['full_name']}\n"
-                    f"⭐ Stars: {repo['stargazers_count']}\n\n"
                     f"```lua\n"
-                    f"loadstring(game:HttpGet(\"{f['download_url']}\"))()\n"
+                    f"loadstring(game:HttpGet(\"{raw_url}\"))()\n"
                     f"```",
                     parse_mode="Markdown"
                 )
+
                 found += 1
-                break
+                break  # берём ОДИН lua из репо
 
     if found == 0:
-        bot.send_message(message.chat.id, "❌ Lua скрипты не найдены")
+        bot.send_message(message.chat.id, "❌ Lua-скрипты не найдены")
 
 print("Bot started")
 bot.infinity_polling()
