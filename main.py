@@ -2,41 +2,67 @@ import telebot
 import requests
 import os
 
-TOKEN = os.getenv("BOT_TOKEN")  # обязательно через env
+TOKEN = os.getenv("BOT_TOKEN")
 bot = telebot.TeleBot(TOKEN)
 
-GITHUB_SEARCH = "https://api.github.com/search/repositories"
-GITHUB_HEADERS = {
+HEADERS = {
     "Accept": "application/vnd.github+json",
     "User-Agent": "findscripts-bot"
 }
+
+def find_lua_files(contents_url):
+    r = requests.get(contents_url, headers=HEADERS)
+    if r.status_code != 200:
+        return []
+
+    results = []
+    items = r.json()
+
+    if not isinstance(items, list):
+        return []
+
+    for item in items:
+        if item["type"] == "file" and item["name"].endswith(".lua"):
+            results.append(item["download_url"])
+
+        if item["type"] == "dir":
+            sub = requests.get(item["url"], headers=HEADERS)
+            if sub.status_code != 200:
+                continue
+            for f in sub.json():
+                if f["type"] == "file" and f["name"].endswith(".lua"):
+                    results.append(f["download_url"])
+
+    return results
+
 
 @bot.message_handler(commands=["start"])
 def start(message):
     bot.send_message(
         message.chat.id,
-        "🤖 Бот запущен и работает 24/7 ✅\n\n"
-        "Команда поиска:\n"
+        "Бот работает\n\n"
+        "Команда:\n"
         "/s <запрос> <кол-во>\n\n"
         "Пример:\n"
         "/s evade 2"
     )
 
-@bot.message_handler(commands=["s"])
-def search_scripts(message):
-    args = message.text.split(maxsplit=2)
 
+@bot.message_handler(commands=["s"])
+def search(message):
+    args = message.text.split(maxsplit=2)
     if len(args) < 3:
-        bot.reply_to(message, "❌ Используй:\n/s <запрос> <кол-во>")
+        bot.reply_to(message, "❌ /s <запрос> <кол-во>")
         return
 
     query = args[1]
     try:
         limit = int(args[2])
-    except ValueError:
+    except:
         bot.reply_to(message, "❌ Кол-во должно быть числом")
         return
 
+    search_url = "https://api.github.com/search/repositories"
     params = {
         "q": f"{query} roblox script",
         "sort": "stars",
@@ -44,52 +70,34 @@ def search_scripts(message):
         "per_page": 10
     }
 
-    r = requests.get(GITHUB_SEARCH, params=params, headers=GITHUB_HEADERS)
+    r = requests.get(search_url, params=params, headers=HEADERS)
     if r.status_code != 200:
-        bot.reply_to(message, "❌ Ошибка GitHub API")
+        bot.send_message(message.chat.id, "❌ Ошибка GitHub API")
         return
 
     repos = r.json().get("items", [])
-    if not repos:
-        bot.reply_to(message, "❌ Ничего не найдено")
-        return
-
     found = 0
+
     bot.send_message(message.chat.id, f"🔍 Поиск по запросу: {query}")
 
     for repo in repos:
         if found >= limit:
             break
 
-        owner = repo["owner"]["login"]
-        name = repo["name"]
-        contents_url = f"https://api.github.com/repos/{owner}/{name}/contents"
+        contents_url = repo["contents_url"].replace("{+path}", "")
+        lua_files = find_lua_files(contents_url)
 
-        c = requests.get(contents_url, headers=GITHUB_HEADERS)
-        if c.status_code != 200:
-            continue
-
-        files = c.json()
-        if not isinstance(files, list):
-            continue
-
-        for f in files:
-            if f["type"] == "file" and f["name"].endswith(".lua"):
-                raw_url = f["download_url"]
-
-                bot.send_message(
-                    message.chat.id,
-                    f"```lua\n"
-                    f"loadstring(game:HttpGet(\"{raw_url}\"))()\n"
-                    f"```",
-                    parse_mode="Markdown"
-                )
-
-                found += 1
-                break  # берём ОДИН lua из репо
+        for raw in lua_files:
+            bot.send_message(
+                message.chat.id,
+                f"```lua\nloadstring(game:HttpGet(\"{raw}\"))()\n```",
+                parse_mode="Markdown"
+            )
+            found += 1
+            break
 
     if found == 0:
         bot.send_message(message.chat.id, "❌ Lua-скрипты не найдены")
 
-print("Bot started")
+
 bot.infinity_polling()
