@@ -3,7 +3,7 @@ import requests
 import re
 import random
 
-TOKEN = "ВСТАВЬ_СЮДА_ТОКЕН"
+TOKEN = "8700268110:AAGtHJ2_Kkyv-b9ZKUVmv8d-L4VLieMV90E"
 bot = telebot.TeleBot(TOKEN, parse_mode="Markdown")
 
 HEADERS = {
