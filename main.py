@@ -3,11 +3,14 @@ import requests
 import os
 import re
 
-TOKEN = os.getenv("BOT_TOKEN")
-bot = telebot.TeleBot(TOKEN)
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+
+bot = telebot.TeleBot(BOT_TOKEN)
 
 HEADERS = {
     "Accept": "application/vnd.github+json",
+    "Authorization": f"Bearer {GITHUB_TOKEN}",
     "User-Agent": "findscripts-bot"
 }
 
@@ -17,7 +20,6 @@ def start(message):
     bot.send_message(
         message.chat.id,
         "🤖 FindScripts бот\n\n"
-        "Команда:\n"
         "/s <запрос> <кол-во>\n\n"
         "Пример:\n"
         "/s evade 1"
@@ -40,49 +42,41 @@ def search(message):
 
     bot.send_message(message.chat.id, f"🔍 Поиск по запросу: {query}")
 
-    search_url = "https://api.github.com/search/code"
+    url = "https://api.github.com/search/code"
     params = {
-        "q": f'{query} loadstring(game:HttpGet language:Lua',
-        "per_page": min(limit * 3, 30)
+        "q": f'{query} loadstring(game:HttpGet',
+        "per_page": 30
     }
 
-    r = requests.get(search_url, headers=HEADERS, params=params)
+    r = requests.get(url, headers=HEADERS, params=params)
+
     if r.status_code != 200:
-        bot.send_message(message.chat.id, "❌ Ошибка GitHub API")
+        bot.send_message(
+            message.chat.id,
+            f"❌ Ошибка GitHub API ({r.status_code})"
+        )
         return
 
-    results = r.json().get("items", [])
+    items = r.json().get("items", [])
     found = 0
 
-    for item in results:
+    for item in items:
         if found >= limit:
             break
 
-        raw_url = item["html_url"].replace(
-            "https://github.com/",
-            "https://raw.githubusercontent.com/"
-        ).replace("/blob/", "/")
+        raw = item["html_url"] \
+            .replace("https://github.com/", "https://raw.githubusercontent.com/") \
+            .replace("/blob/", "/")
 
-        file = requests.get(raw_url)
+        file = requests.get(raw)
         if file.status_code != 200:
             continue
 
         matches = re.findall(
-            r'loadstring\(game:HttpGet\(["\'](.*?)["\']\)\)\(\)',
+            r'loadstringgame:HttpGet\(["\'](.*?)["\']\)',
             file.text
         )
 
         for m in matches:
             bot.send_message(
-                message.chat.id,
-                f"```lua\nloadstring(game:HttpGet(\"{m}\"))()\n```",
-                parse_mode="Markdown"
-            )
-            found += 1
-            break
-
-    if found == 0:
-        bot.send_message(message.chat.id, "❌ Lua-скрипты не найдены")
-
-
-bot.infinity_polling()
+                message.chat
