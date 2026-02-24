@@ -1,44 +1,92 @@
 import telebot
-import os
+import requests
+import re
+import random
 
-TOKEN = os.getenv("BOT_TOKEN")  # токен бота из переменных Railway
-bot = telebot.TeleBot(TOKEN)
+TOKEN = "ВСТАВЬ_СЮДА_ТОКЕН"
+bot = telebot.TeleBot(TOKEN, parse_mode="Markdown")
 
-@bot.message_handler(commands=["start"])
-def start(message):
-    bot.send_message(
-        message.chat.id,
-        "🤖 Бот запущен и работает 24/7 ✅\n\n"
-        "Используй команду:\n"
-        "/s <название>"
-    )
+HEADERS = {
+    "User-Agent": "Mozilla/5.0"
+}
 
+# ---------- ПРОВЕРКА KEY ----------
+def check_key(lua_code: str) -> str:
+    keywords = [
+        "key system", "getkey", "get_key", "enter key",
+        "verify key", "checkkey", "linkvertise",
+        "lootlinks", "work.ink", "key ="
+    ]
+    code = lua_code.lower()
+    for k in keywords:
+        if k in code:
+            return "KEY: ❌"
+    return "KEY: ✅"
+
+# ---------- ПОИСК RAW СКРИПТОВ ----------
+def search_scripts(game: str, limit: int):
+    query = f"{game} roblox lua loadstring"
+    url = f"https://api.github.com/search/code?q={query}&per_page=20"
+
+    r = requests.get(url, headers=HEADERS)
+    if r.status_code != 200:
+        return []
+
+    items = r.json().get("items", [])
+    random.shuffle(items)
+
+    raw_links = []
+    for item in items:
+        if len(raw_links) >= limit:
+            break
+
+        html_url = item["html_url"]
+        raw_url = html_url.replace(
+            "https://github.com/",
+            "https://raw.githubusercontent.com/"
+        ).replace("/blob/", "/")
+
+        raw_links.append(raw_url)
+
+    return raw_links
+
+# ---------- КОМАНДА /s ----------
 @bot.message_handler(commands=["s"])
-def search_script(message):
-    query = message.text.replace("/s", "").strip()
-
-    if not query:
-        bot.send_message(
-            message.chat.id,
-            "❌ Укажи запрос\n\nПример:\n/s evade"
-        )
+def search_handler(message):
+    try:
+        args = message.text.split()
+        game = args[1]
+        count = int(args[2])
+    except:
+        bot.reply_to(message, "Используй: `/s игра количество`")
         return
 
-    # 🔗 пример ссылки (потом заменишь на реальный поиск)
-    lua_url = "https://rawscripts.net/raw/Random-Mafia-Shooter-esp-aimbot-noclip-97624"
+    bot.send_message(message.chat.id, "🔎 Ищу скрипты...")
 
-    script_message = (
-        f"🔍 Поиск по запросу: *{query}*\n\n"
-        "```lua\n"
-        f'loadstring(game:HttpGet("{lua_url}"))()\n'
-        "```"
-    )
+    links = search_scripts(game, count)
 
-    bot.send_message(
-        message.chat.id,
-        script_message,
-        parse_mode="Markdown"
-    )
+    if not links:
+        bot.send_message(message.chat.id, "❌ Скрипты не найдены")
+        return
 
-print("Bot is running...")
+    for link in links:
+        try:
+            r = requests.get(link, timeout=10)
+            lua_code = r.text
+
+            key_status = check_key(lua_code)
+
+            msg = (
+                f"{key_status}\n\n"
+                "```lua\n"
+                f'loadstring(game:HttpGet("{link}"))()\n'
+                "```"
+            )
+
+            bot.send_message(message.chat.id, msg)
+
+        except:
+            continue
+
+# ---------- СТАРТ ----------
 bot.infinity_polling()
